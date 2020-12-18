@@ -12,7 +12,7 @@ function Table({ columns, data }) {
       columns,
       data,
     },
-    useSortBy
+    useSortBy,
   )
 
   const firstPageRows = rows.slice(0, 80)
