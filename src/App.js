@@ -4,7 +4,7 @@ import Table from './Table';
 import pitchers from './pitchers'
 
 const Styles = styled.div`
-  padding: 1rem;
+  padding: 3rem;
 
   table {
     border-spacing: 0;
