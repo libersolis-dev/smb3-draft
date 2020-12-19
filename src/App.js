@@ -1,17 +1,15 @@
-import React from 'react'
-import styled from 'styled-components'
+import React from 'react';
+import styled from 'styled-components';
 import {
   useTable,
-  usePagination,
-  useSortBy,
   useFilters,
-  useGroupBy,
-  useExpanded,
-  useRowSelect,
-} from 'react-table'
-import matchSorter from 'match-sorter';
+  useGlobalFilter,
+  useAsyncDebounce,
+} from 'react-table';
+// A great library for fuzzy filtering/sorting items
+import { matchSorter } from 'match-sorter';
 
-import position from './position'
+import pitchers from './pitchers';
 
 const Styles = styled.div`
   padding: 1rem;
@@ -39,69 +37,55 @@ const Styles = styled.div`
         border-right: 0;
       }
     }
-
-    td {
-      input {
-        font-size: 1rem;
-        padding: 0;
-        margin: 0;
-        border: 0;
-      }
-    }
   }
+`;
 
-  .pagination {
-    padding: 0.5rem;
-  }
-`
+// Define a default UI for filtering
+function GlobalFilter({
+  preGlobalFilteredRows,
+  globalFilter,
+  setGlobalFilter,
+}) {
+  const count = preGlobalFilteredRows.length;
+  const [value, setValue] = React.useState(globalFilter);
+  const onChange = useAsyncDebounce((value) => {
+    setGlobalFilter(value || undefined);
+  }, 200);
 
-// Create an editable cell renderer
-const EditableCell = ({
-  value: initialValue,
-  row: { index },
-  column: { id },
-  updateMyData, // This is a custom function that we supplied to our table instance
-  editable,
-}) => {
-  // We need to keep and update the state of the cell normally
-  const [value, setValue] = React.useState(initialValue)
-
-  const onChange = e => {
-    setValue(e.target.value)
-  }
-
-  // We'll only update the external data when the input is blurred
-  const onBlur = () => {
-    updateMyData(index, id, value)
-  }
-
-  // If the initialValue is changed externall, sync it up with our state
-  React.useEffect(() => {
-    setValue(initialValue)
-  }, [initialValue])
-
-  if (!editable) {
-    return `${initialValue}`
-  }
-
-  return <input value={value} onChange={onChange} onBlur={onBlur} />
+  return (
+    <span>
+      Search:{' '}
+      <input
+        value={value || ''}
+        onChange={(e) => {
+          setValue(e.target.value);
+          onChange(e.target.value);
+        }}
+        placeholder={`${count} records...`}
+        style={{
+          fontSize: '1.1rem',
+          border: '0',
+        }}
+      />
+    </span>
+  );
 }
 
 // Define a default UI for filtering
 function DefaultColumnFilter({
   column: { filterValue, preFilteredRows, setFilter },
 }) {
-  const count = preFilteredRows.length
+  const count = preFilteredRows.length;
 
   return (
     <input
       value={filterValue || ''}
-      onChange={e => {
-        setFilter(e.target.value || undefined) // Set undefined to remove the filter entirely
+      onChange={(e) => {
+        setFilter(e.target.value || undefined); // Set undefined to remove the filter entirely
       }}
       placeholder={`Search ${count} records...`}
     />
-  )
+  );
 }
 
 // This is a custom filter UI for selecting
@@ -112,29 +96,28 @@ function SelectColumnFilter({
   // Calculate the options for filtering
   // using the preFilteredRows
   const options = React.useMemo(() => {
-    const options = new Set()
-    preFilteredRows.forEach(row => {
-      options.add(row.values[id])
-    })
-    return [...options.values()]
-  }, [id, preFilteredRows])
+    const options = new Set();
+    preFilteredRows.forEach((row) => {
+      options.add(row.values[id]);
+    });
+    return [...options.values()];
+  }, [id, preFilteredRows]);
 
   // Render a multi-select box
   return (
     <select
       value={filterValue}
-      onChange={e => {
-        setFilter(e.target.value || undefined)
-      }}
-    >
-      <option value="">All</option>
+      onChange={(e) => {
+        setFilter(e.target.value || undefined);
+      }}>
+      <option value=''>All</option>
       {options.map((option, i) => (
         <option key={i} value={option}>
           {option}
         </option>
       ))}
     </select>
-  )
+  );
 }
 
 // This is a custom filter UI that uses a
@@ -147,29 +130,28 @@ function SliderColumnFilter({
   // using the preFilteredRows
 
   const [min, max] = React.useMemo(() => {
-    let min = preFilteredRows.length ? preFilteredRows[0].values[id] : 0
-    let max = preFilteredRows.length ? preFilteredRows[0].values[id] : 0
-    preFilteredRows.forEach(row => {
-      min = Math.min(row.values[id], min)
-      max = Math.max(row.values[id], max)
-    })
-    return [min, max]
-  }, [id, preFilteredRows])
+    let min = preFilteredRows.length ? preFilteredRows[0].values[id] : 0;
+    let max = preFilteredRows.length ? preFilteredRows[0].values[id] : 0;
+    preFilteredRows.forEach((row) => {
+      min = Math.min(row.values[id], min);
+      max = Math.max(row.values[id], max);
+    });
+    return [min, max];
+  }, [id, preFilteredRows]);
 
   return (
     <>
       <input
-        type="range"
+        type='range'
         min={min}
         max={max}
         value={filterValue || min}
-        onChange={e => {
-          setFilter(parseInt(e.target.value, 10))
+        onChange={(e) => {
+          setFilter(parseInt(e.target.value, 10));
         }}
       />
-      <button onClick={() => setFilter(undefined)}>Off</button>
     </>
-  )
+  );
 }
 
 // This is a custom UI for our 'between' or number range
@@ -179,27 +161,29 @@ function NumberRangeColumnFilter({
   column: { filterValue = [], preFilteredRows, setFilter, id },
 }) {
   const [min, max] = React.useMemo(() => {
-    let min = preFilteredRows.length ? preFilteredRows[0].values[id] : 0
-    let max = preFilteredRows.length ? preFilteredRows[0].values[id] : 0
-    preFilteredRows.forEach(row => {
-      min = Math.min(row.values[id], min)
-      max = Math.max(row.values[id], max)
-    })
-    return [min, max]
-  }, [id, preFilteredRows])
+    let min = preFilteredRows.length ? preFilteredRows[0].values[id] : 0;
+    let max = preFilteredRows.length ? preFilteredRows[0].values[id] : 0;
+    preFilteredRows.forEach((row) => {
+      min = Math.min(row.values[id], min);
+      max = Math.max(row.values[id], max);
+    });
+    return [min, max];
+  }, [id, preFilteredRows]);
 
   return (
     <div
       style={{
         display: 'flex',
-      }}
-    >
+      }}>
       <input
         value={filterValue[0] || ''}
-        type="number"
-        onChange={e => {
-          const val = e.target.value
-          setFilter((old = []) => [val ? parseInt(val, 10) : undefined, old[1]])
+        type='number'
+        onChange={(e) => {
+          const val = e.target.value;
+          setFilter((old = []) => [
+            val ? parseInt(val, 10) : undefined,
+            old[1],
+          ]);
         }}
         placeholder={`Min (${min})`}
         style={{
@@ -210,10 +194,13 @@ function NumberRangeColumnFilter({
       to
       <input
         value={filterValue[1] || ''}
-        type="number"
-        onChange={e => {
-          const val = e.target.value
-          setFilter((old = []) => [old[0], val ? parseInt(val, 10) : undefined])
+        type='number'
+        onChange={(e) => {
+          const val = e.target.value;
+          setFilter((old = []) => [
+            old[0],
+            val ? parseInt(val, 10) : undefined,
+          ]);
         }}
         placeholder={`Max (${max})`}
         style={{
@@ -222,18 +209,18 @@ function NumberRangeColumnFilter({
         }}
       />
     </div>
-  )
+  );
 }
 
 function fuzzyTextFilterFn(rows, id, filterValue) {
-  return matchSorter(rows, filterValue, { keys: [row => row.values[id]] })
+  return matchSorter(rows, filterValue, { keys: [(row) => row.values[id]] });
 }
 
 // Let the table remove the filter if the string is empty
-fuzzyTextFilterFn.autoRemove = val => !val
+fuzzyTextFilterFn.autoRemove = (val) => !val;
 
-// Be sure to pass our updateMyData and the skipReset option
-function Table({ columns, data, updateMyData, skipReset }) {
+// Our table component
+function Table({ columns, data }) {
   const filterTypes = React.useMemo(
     () => ({
       // Add a new fuzzyTextFilterFn filter type.
@@ -241,136 +228,61 @@ function Table({ columns, data, updateMyData, skipReset }) {
       // Or, override the default text filter to use
       // "startWith"
       text: (rows, id, filterValue) => {
-        return rows.filter(row => {
-          const rowValue = row.values[id]
+        return rows.filter((row) => {
+          const rowValue = row.values[id];
           return rowValue !== undefined
             ? String(rowValue)
                 .toLowerCase()
                 .startsWith(String(filterValue).toLowerCase())
-            : true
-        })
+            : true;
+        });
       },
     }),
-    []
-  )
+    [],
+  );
 
   const defaultColumn = React.useMemo(
     () => ({
       // Let's set up our default Filter UI
       Filter: DefaultColumnFilter,
-      // And also our default editable cell
-      Cell: EditableCell,
     }),
-    []
-  )
+    [],
+  );
 
-  // Use the state and functions returned from useTable to build your UI
   const {
     getTableProps,
     getTableBodyProps,
     headerGroups,
+    rows,
     prepareRow,
-    page, // Instead of using 'rows', we'll use page,
-    // which has only the rows for the active page
-
-    // The rest of these things are super handy, too ;)
-    canPreviousPage,
-    canNextPage,
-    pageOptions,
-    pageCount,
-    gotoPage,
-    nextPage,
-    previousPage,
-    setPageSize,
-    state: {
-      pageIndex,
-      pageSize,
-      sortBy,
-      groupBy,
-      expanded,
-      filters,
-      selectedRowIds,
-    },
+    state,
+    visibleColumns,
+    preGlobalFilteredRows,
+    setGlobalFilter,
   } = useTable(
     {
       columns,
       data,
-      defaultColumn,
+      defaultColumn, // Be sure to pass the defaultColumn option
       filterTypes,
-      // updateMyData isn't part of the API, but
-      // anything we put into these options will
-      // automatically be available on the instance.
-      // That way we can call this function from our
-      // cell renderer!
-      updateMyData,
-      // We also need to pass this so the page doesn't change
-      // when we edit the data.
-      autoResetPage: !skipReset,
-      autoResetSelectedRows: !skipReset,
-      disableMultiSort: true,
     },
-    useFilters,
-    useGroupBy,
-    useSortBy,
-    useExpanded,
-    usePagination,
-    useRowSelect,
-    // Here we will use a plugin to add our selection column
-    hooks => {
-      hooks.visibleColumns.push(columns => {
-        return [
-          {
-            id: 'selection',
-            // Make this column a groupByBoundary. This ensures that groupBy columns
-            // are placed after it
-            groupByBoundary: true,
-            // The header can use the table's getToggleAllRowsSelectedProps method
-            // to render a checkbox
-            Header: ({ getToggleAllRowsSelectedProps }) => (
-              <div>
-                <IndeterminateCheckbox {...getToggleAllRowsSelectedProps()} />
-              </div>
-            ),
-            // The cell can use the individual row's getToggleRowSelectedProps method
-            // to the render a checkbox
-            Cell: ({ row }) => (
-              <div>
-                <IndeterminateCheckbox {...row.getToggleRowSelectedProps()} />
-              </div>
-            ),
-          },
-          ...columns,
-        ]
-      })
-    }
-  )
+    useFilters, // useFilters!
+    useGlobalFilter, // useGlobalFilter!
+  );
 
-  // Render the UI for your table
+  // We don't want to render all of the rows for this example, so cap
+  // it for this use case
+  const firstPageRows = rows.slice(0, 300);
+
   return (
     <>
       <table {...getTableProps()}>
         <thead>
-          {headerGroups.map(headerGroup => (
+          {headerGroups.map((headerGroup) => (
             <tr {...headerGroup.getHeaderGroupProps()}>
-              {headerGroup.headers.map(column => (
+              {headerGroup.headers.map((column) => (
                 <th {...column.getHeaderProps()}>
-                  <div>
-                    {column.canGroupBy ? (
-                      // If the column can be grouped, let's add a toggle
-                      <span {...column.getGroupByToggleProps()}>
-                        {column.isGrouped ? '🛑 ' : '👊 '}
-                      </span>
-                    ) : null}
-                    <span {...column.getSortByToggleProps()}>
-                      {column.render('Header')}
-                      {/* Add a sort direction indicator */}
-                      {column.isSorted
-                        ? column.isSortedDesc
-                          ? ' 🔽'
-                          : ' 🔼'
-                        : ''}
-                    </span>
-                  </div>
+                  {column.render('Header')}
                   {/* Render the columns filter UI */}
                   <div>{column.canFilter ? column.render('Filter') : null}</div>
                 </th>
@@ -379,280 +291,118 @@ function Table({ columns, data, updateMyData, skipReset }) {
           ))}
         </thead>
         <tbody {...getTableBodyProps()}>
-          {page.map(row => {
-            prepareRow(row)
+          {firstPageRows.map((row, i) => {
+            prepareRow(row);
             return (
               <tr {...row.getRowProps()}>
-                {row.cells.map(cell => {
+                {row.cells.map((cell) => {
                   return (
-                    <td {...cell.getCellProps()}>
-                      {cell.isGrouped ? (
-                        // If it's a grouped cell, add an expander and row count
-                        <>
-                          <span {...row.getToggleRowExpandedProps()}>
-                            {row.isExpanded ? '👇' : '👉'}
-                          </span>{' '}
-                          {cell.render('Cell', { editable: false })} (
-                          {row.subRows.length})
-                        </>
-                      ) : cell.isAggregated ? (
-                        // If the cell is aggregated, use the Aggregated
-                        // renderer for cell
-                        cell.render('Aggregated')
-                      ) : cell.isPlaceholder ? null : ( // For cells with repeated values, render null
-                        // Otherwise, just render the regular cell
-                        cell.render('Cell', { editable: true })
-                      )}
-                    </td>
-                  )
+                    <td {...cell.getCellProps()}>{cell.render('Cell')}</td>
+                  );
                 })}
               </tr>
-            )
+            );
           })}
         </tbody>
       </table>
-      {/*
-        Pagination can be built however you'd like.
-        This is just a very basic UI implementation:
-      */}
-      <div className="pagination">
-        <button onClick={() => gotoPage(0)} disabled={!canPreviousPage}>
-          {'<<'}
-        </button>{' '}
-        <button onClick={() => previousPage()} disabled={!canPreviousPage}>
-          {'<'}
-        </button>{' '}
-        <button onClick={() => nextPage()} disabled={!canNextPage}>
-          {'>'}
-        </button>{' '}
-        <button onClick={() => gotoPage(pageCount - 1)} disabled={!canNextPage}>
-          {'>>'}
-        </button>{' '}
-        <span>
-          Page{' '}
-          <strong>
-            {pageIndex + 1} of {pageOptions.length}
-          </strong>{' '}
-        </span>
-        <span>
-          | Go to page:{' '}
-          <input
-            type="number"
-            defaultValue={pageIndex + 1}
-            onChange={e => {
-              const page = e.target.value ? Number(e.target.value) - 1 : 0
-              gotoPage(page)
-            }}
-            style={{ width: '100px' }}
-          />
-        </span>{' '}
-        <select
-          value={pageSize}
-          onChange={e => {
-            setPageSize(Number(e.target.value))
-          }}
-        >
-          {[10, 20, 30, 40, 50].map(pageSize => (
-            <option key={pageSize} value={pageSize}>
-              Show {pageSize}
-            </option>
-          ))}
-        </select>
-      </div>
-      <pre>
-        <code>
-          {JSON.stringify(
-            {
-              pageIndex,
-              pageSize,
-              pageCount,
-              canNextPage,
-              canPreviousPage,
-              sortBy,
-              groupBy,
-              expanded: expanded,
-              filters,
-              selectedRowIds: selectedRowIds,
-            },
-            null,
-            2
-          )}
-        </code>
-      </pre>
+      <br />
     </>
-  )
+  );
 }
 
-// Define a custom filter filter function!
 function filterGreaterThan(rows, id, filterValue) {
-  return rows.filter(row => {
-    const rowValue = row.values[id]
-    return rowValue >= filterValue
-  })
+  return rows.filter((row) => {
+    const rowValue = row.values[id];
+    return rowValue >= filterValue;
+  });
 }
 
-// This is an autoRemove method on the filter function that
-// when given the new filter value and returns true, the filter
-// will be automatically removed. Normally this is just an undefined
-// check, but here, we want to remove the filter if it's not a number
-filterGreaterThan.autoRemove = val => typeof val !== 'number'
-
-// This is a custom aggregator that
-// takes in an array of leaf values and
-// returns the rounded median
-function roundedMedian(leafValues) {
-  let min = leafValues[0] || 0
-  let max = leafValues[0] || 0
-
-  leafValues.forEach(value => {
-    min = Math.min(min, value)
-    max = Math.max(max, value)
-  })
-
-  return Math.round((min + max) / 2)
-}
-
-const IndeterminateCheckbox = React.forwardRef(
-  ({ indeterminate, ...rest }, ref) => {
-    const defaultRef = React.useRef()
-    const resolvedRef = ref || defaultRef
-
-    React.useEffect(() => {
-      resolvedRef.current.indeterminate = indeterminate
-    }, [resolvedRef, indeterminate])
-
-    return (
-      <>
-        <input type="checkbox" ref={resolvedRef} {...rest} />
-      </>
-    )
-  }
-)
+filterGreaterThan.autoRemove = (val) => typeof val !== 'number';
 
 function App() {
   const columns = React.useMemo(
     () => [
       {
-        Header: 'Name',
+        Header: 'Pitchers',
         columns: [
           {
-            Header: 'First Name',
-            accessor: 'firstName',
-            // Use a two-stage aggregator here to first
-            // count the total rows being aggregated,
-            // then sum any of those counts if they are
-            // aggregated further
-            aggregate: 'count',
-            Aggregated: ({ value }) => `${value} Names`,
-          },
-          {
-            Header: 'Last Name',
-            accessor: 'lastName',
-            // Use our custom `fuzzyText` filter on this column
+            Header: 'Name',
+            accessor: 'name',
             filter: 'fuzzyText',
-            // Use another two-stage aggregator here to
-            // first count the UNIQUE values from the rows
-            // being aggregated, then sum those counts if
-            // they are aggregated further
-            aggregate: 'uniqueCount',
-            Aggregated: ({ value }) => `${value} Unique Names`,
           },
-        ],
-      },
-      {
-        Header: 'Info',
-        columns: [
           {
-            Header: 'Age',
-            accessor: 'age',
-            Filter: SliderColumnFilter,
+            Header: 'Position',
+            accessor: 'position',
+            Filter: SelectColumnFilter,
             filter: 'equals',
-            // Aggregate the average age of visitors
-            aggregate: 'average',
-            Aggregated: ({ value }) => `${value} (avg)`,
           },
           {
-            Header: 'Visits',
-            accessor: 'visits',
+            Header: 'Rating',
+            accessor: 'rating',
+            Filter: SelectColumnFilter,
+            filter: 'equals',
+          },
+          {
+            Header: 'Velocity',
+            accessor: 'vel',
             Filter: NumberRangeColumnFilter,
             filter: 'between',
-            // Aggregate the sum of all visits
-            aggregate: 'sum',
-            Aggregated: ({ value }) => `${value} (total)`,
           },
           {
-            Header: 'Status',
-            accessor: 'status',
+            Header: 'Junk',
+            accessor: 'jnk',
+            Filter: NumberRangeColumnFilter,
+            filter: 'between',
+          },
+          {
+            Header: 'Accuracy',
+            accessor: 'acc',
+            Filter: NumberRangeColumnFilter,
+            filter: 'between',
+          },
+          {
+            Header: 'Arsenal',
+            accessor: 'arsenal',
             Filter: SelectColumnFilter,
-            filter: 'includes',
+            filter: 'equals',
           },
           {
-            Header: 'Profile Progress',
-            accessor: 'progress',
-            Filter: SliderColumnFilter,
-            filter: filterGreaterThan,
-            // Use our custom roundedMedian aggregator
-            aggregate: roundedMedian,
-            Aggregated: ({ value }) => `${value} (med)`,
+            Header: 'Fielding',
+            accessor: 'fld',
+            Filter: NumberRangeColumnFilter,
+            filter: 'between',
+          },
+          {
+            Header: 'Throws',
+            accessor: 'throw',
+            Filter: SelectColumnFilter,
+            filter: 'equals',
+          },
+          {
+            Header: 'Salary',
+            accessor: 'salary',
+            Filter: NumberRangeColumnFilter,
+            filter: 'between',
+          },
+          {
+            Header: 'Team',
+            accessor: 'team',
+            Filter: SelectColumnFilter,
+            filter: 'equals',
           },
         ],
       },
     ],
-    []
-  )
+    [],
+  );
 
-  const [data, setData] = React.useState(() => position(10000))
-  const [originalData] = React.useState(data)
-
-  // We need to keep the table from resetting the pageIndex when we
-  // Update data. So we can keep track of that flag with a ref.
-  const skipResetRef = React.useRef(false)
-
-  // When our cell renderer calls updateMyData, we'll use
-  // the rowIndex, columnId and new value to update the
-  // original data
-  const updateMyData = (rowIndex, columnId, value) => {
-    // We also turn on the flag to not reset the page
-    skipResetRef.current = true
-    setData(old =>
-      old.map((row, index) => {
-        if (index === rowIndex) {
-          return {
-            ...row,
-            [columnId]: value,
-          }
-        }
-        return row
-      })
-    )
-  }
-
-  // After data changes, we turn the flag back off
-  // so that if data actually changes when we're not
-  // editing it, the page is reset
-  React.useEffect(() => {
-    skipResetRef.current = false
-  }, [data])
-
-  // Let's add a data resetter/randomizer to help
-  // illustrate that flow...
-  const resetData = () => {
-    // Don't reset the page when we do this
-    skipResetRef.current = true
-    setData(originalData)
-  }
+  const data = React.useMemo(() => pitchers, []);
 
   return (
     <Styles>
-      <button onClick={resetData}>Reset Data</button>
-      <Table
-        columns={columns}
-        data={data}
-        updateMyData={updateMyData}
-        skipReset={skipResetRef.current}
-      />
+      <Table columns={columns} data={data} />
     </Styles>
-  )
+  );
 }
 
 export default App;
